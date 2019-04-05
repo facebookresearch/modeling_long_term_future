@@ -25,8 +25,8 @@ for installation instructions specific to your platform.
 
 Then, clone this repository and install the other dependencies with `pip3`:
 
-    git clone https://github.com/nke001/iclr_babyai
-    cd babyai
+    git clone https://github.com/facebookresearch/modeling_long_term_future.git
+    cd modeling_long_term_future
     pip3 install --editable .
 
 Create a new conda env using env.yml in the repo
