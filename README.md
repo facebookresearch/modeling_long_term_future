@@ -1,28 +1,29 @@
-Based on code base for the BabyAI project at Mila. https://github.com/mila-iqia/babyai
 
-Follow similar installations as in https://github.com/mila-iqia/babyai.
+
+Based on code base for the https://github.com/ikostrikov/pytorch-trpo
+
+Follow similar installations as in https://github.com/ikostrikov/pytorch-trpo.
 
 
 Requirements:
 ## Installation
 
 Requirements:
-- Python 3.5+
+- Python 3.6
 - OpenAI Gym
 - NumPy
 - PyQT5
-- PyTorch 0.4.1+
+- PyTorch 0.4.1
 
 Start by manually installing PyTorch. See the [PyTorch website](http://pytorch.org/)
 for installation instructions specific to your platform.
 
 Then, clone this repository and install the other dependencies with `pip3`:
 
-    git clone https://github.com/nke001/iclr_babyai
-    cd babyai
-    pip3 install --editable .
+    git clone https://github.com/nke001/iclr_mujoco
+    cd iclr_mujoco
+    conda create -n ENV_NAME env.yml
 
-Create a new conda env using env.yml in the repo
 
 ## Training teacher
 
@@ -33,26 +34,34 @@ First train the teacher using TRPO on HalfCheetah-v2.
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:PATH/.mujoco/mjpro150/bin
     python main.py --env-name "HalfCheetah-v2"
 
-
 ## Generate expert trajectories
 
 Our students is trained on high-dimensional images, we need to ask expert to render images.
 
 Rendering Mujoco headlessly on the server
 
-    python3 -m scripts.train_curclm. --env BabyAI-UnlockPickup-v0  --algo ppo   --arch cnn1 --tb --seed 1 --save-interval 10 --room-size 6
-    python3 -m scripts.train_curclm. --env BabyAI-UnlockPickup-v0  --algo ppo   --arch cnn1 --tb --seed 1 --save-interval 10 --room-size 8 --model MODEL_ROOM6_PRETRAINED
-    python3 -m scripts.train_curclm. --env BabyAI-UnlockPickup-v0  --algo ppo   --arch cnn1 --tb --seed 1 --save-interval 10 --room-size 10 --model MODEL_ROOM8_PRETRAINED
-    python3 -m scripts.train_curclm. --env BabyAI-UnlockPickup-v0  --algo ppo   --arch cnn1 --tb --seed 1 --save-interval 10 --room-size 12 --model MODEL_ROOM10_PRETRAINED
-    python3 -m scripts.train_curclm. --env BabyAI-UnlockPickup-v0  --algo ppo   --arch cnn1 --tb --seed 1 --save-interval 10 --room-size 15 --model MODEL_ROOM12_PRETRAINED
+* Add these to the file
+    ```from pyvirtualdisplay import Display
+    display_ = Display(visible=0, size=(550, 500))
+    display_.start()
+    image = env.render(mode="rgb_array")
+
+* Also, in the mujoco/mujoco_env.py, cchange the def render() function to the following
+    ```
+    def render(self, mode='human'):
+        if mode == 'rgb_array':
+            data = self.sim.render(500, 500)
+            return data[::-1, :, :]
+        elif mode == 'human':
+            self._get_viewer().render()
 
 
-## Generate expert trajectories
+The cheetah is moving, so need to have the camera tracking the movements of cheetah. Need to change a few things in mujoco_py
 
-Generate expert trajectories from the experts trained using curriculum learning
 
-    mnkdir data
-    python3 -m scripts.gen_samples --episodes 10000 --env BabyAI-UnlockPickup-v0 --model pretrained_model_room_10 --room 10
+Generate 10k expert trajectories from the experts.
+
+    python gen_samples_cheetah.py --num-samples 100000
 
 
 ## Training the student to imitate the expert

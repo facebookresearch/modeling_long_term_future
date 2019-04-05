@@ -148,9 +148,9 @@ class LReLU(nn.Module):
 
 class ZForcing(nn.Module):
     def __init__(self, emb_dim, rnn_dim,
-                 z_dim, mlp_dim, out_dim, bwd_out_dim=None, out_type="softmax", bwd_out_type = 'softmax',
+                 z_dim, mlp_dim, out_dim, out_type="gaussian",
                  cond_ln=False, nlayers=1, z_force=False, dropout=0.,
-                 use_l2=False, drop_grad=False, return_loss=False):
+                 use_l2=False, drop_grad=False):
         super(ZForcing, self).__init__()
         assert not drop_grad, "drop_grad is not supported!"
         self.emb_dim = emb_dim
@@ -158,88 +158,105 @@ class ZForcing(nn.Module):
         self.rnn_dim = rnn_dim
         self.nlayers = nlayers
         self.z_dim = z_dim
-        self.return_loss = return_loss
         self.dropout = dropout
         self.out_type = out_type
-        self.bwd_out_type = bwd_out_type
         self.mlp_dim = mlp_dim
         self.cond_ln = cond_ln
         self.z_force = z_force
         self.use_l2 = use_l2
         self.drop_grad = drop_grad
-        if bwd_out_dim is None:
-            self.bwd_out_dim = self.out_dim
-        else:
-            self.bwd_out_dim = bwd_out_dim
-
-        '''self.fwd_emb_mod = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1),
+        self.action_emb_size = 64
+        self.fwd_action_emb = nn.Sequential(
+            nn.Linear(6, int(self.action_emb_size/2)),
             nn.LeakyReLU(),
-            nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(),
-            #nn.AvgPool2d(4),
-            View(-1, 256),
-            nn.Linear(256, emb_dim),
-            nn.Dropout(dropout))
-        '''
-        self.fwd_emb_mod = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3,stride=2, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU())
-        self.linear1 = nn.Linear(256, emb_dim)
-
-        '''self.bwd_emb_mod = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(),
-            nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(),
-            #nn.AvgPool2d(4),
-            View(-1, 256),
-            nn.Linear(256, emb_dim),
-            nn.Dropout(dropout))'''
-
-        self.bwd_emb_mod = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3,stride=2, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(),
-			View(-1, 256),
-			nn.Linear(256, emb_dim))
-
-        self.linear1 = nn.Linear(256, emb_dim)
-        self.dec_linear = nn.Linear(rnn_dim, 256)
+            nn.Linear(int(self.action_emb_size/2), self.action_emb_size))
         self.l2_loss = nn.MSELoss()
         self.l1_loss = nn.L1Loss()
-        self.ce_loss = nn.CrossEntropyLoss()
-        self.bwd_dec_mod = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=64,out_channels=16,kernel_size=3,stride=1, padding=1),
+        self.emb_mod = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=32, kernel_size=4, stride=2),
+            nn.BatchNorm2d(32),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(in_channels=16,out_channels=8,kernel_size=3,stride=2, padding=1),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
+            nn.BatchNorm2d(64),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(in_channels=8,out_channels=3,kernel_size=5,stride=2, padding=1),
-            nn.Sigmoid()
-
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=4, stride=2),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=4, stride=2),
+            nn.LeakyReLU(),
+            #nn.AvgPool2d(4),
+            View(-1, 1024),
+            nn.Linear(1024, emb_dim),
+            #nn.Dropout(dropout)
             )
-        self.softmax = torch.nn.Softmax()
+#
+
+        self.bwd_emb_mod = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=32, kernel_size=4, stride=2),                                                                                                                           
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(),                                                                                                                                                                                          
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),                                                                                                                          
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(),                                                                                                                                                                                          
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=4, stride=2),                                                                                                                         
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(),                                                                                                                                                                                          
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=4, stride=2),                                                                                                                        
+            nn.LeakyReLU(),                                                                                                                                                                                          
+            #nn.AvgPool2d(4),                                                                                                                                                                                        
+            View(-1, 1024),                                                                                                                                                                                          
+            nn.Linear(1024, emb_dim),                                                                                                                                                                                
+            #nn.Dropout(dropout))    
+            )
+        self.bwd_dec_linear = nn.Linear(rnn_dim, 1024) 
+        
+        self.dec_linear = nn.Linear(832, 1024) 
+ 
+        self.dec_mod = nn.Sequential(
+            nn.ConvTranspose2d(in_channels=1024,out_channels=128,kernel_size=5,stride=2),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(in_channels=128,out_channels=64,kernel_size=5,stride=2),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(in_channels=64,out_channels=32,kernel_size=6,stride=2),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(in_channels=32,out_channels=3,kernel_size=6,stride=2),
+            nn.LeakyReLU()
+            ) 
+        self.bwd_dec_mod = nn.Sequential(
+            nn.ConvTranspose2d(in_channels=1024,out_channels=128,kernel_size=5,stride=2),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(in_channels=128,out_channels=64,kernel_size=5,stride=2),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(in_channels=64,out_channels=32,kernel_size=6,stride=2),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(in_channels=32,out_channels=3,kernel_size=6,stride=2),
+            nn.LeakyReLU()
+            #nn.Sigmoid()
+            )
+
+        self.bwd_mean_network = nn.Sequential(
+            nn.Linear(in_features=64, out_features=32, bias=True),
+            nn.ReLU(),
+            nn.Linear(in_features=32, out_features=64, bias=True))
+
+        self.bwd_logvar_network = nn.Sequential(
+            nn.Linear(in_features=64, out_features=32, bias=True),
+            nn.ReLU(),
+            nn.Linear(in_features=32, out_features=64, bias=True))
+        
+        self.mean_network = nn.Sequential(
+            nn.Linear(in_features=64, out_features=32, bias=True),
+            nn.ReLU(),
+            nn.Linear(in_features=32, out_features=64, bias=True))
+
+        self.logvar_network = nn.Sequential(
+            nn.Linear(in_features=64, out_features=32, bias=True),
+            nn.ReLU(),
+            nn.Linear(in_features=32, out_features=64, bias=True))  
         self.bwd_mod = nn.LSTM(emb_dim, rnn_dim, nlayers)
         nn.init.orthogonal(self.bwd_mod.weight_hh_l0.data)
         self.fwd_mod = LSTMCell(
@@ -258,6 +275,7 @@ class ZForcing(nn.Module):
                 nn.Linear(z_dim, mlp_dim),
                 LReLU(),
                 nn.Linear(mlp_dim, 8 * rnn_dim))
+            #self.gen_mod = nn.Linear(z_dim, rnn_dim)
         else:
             self.gen_mod = nn.Linear(z_dim, mlp_dim)
         self.aux_mod = nn.Sequential(
@@ -265,8 +283,9 @@ class ZForcing(nn.Module):
             LReLU(),
             nn.Linear(mlp_dim, 2 * rnn_dim))
         self.fwd_out_mod = nn.Linear(rnn_dim, out_dim)
-        self.bwd_out_mod = nn.Linear(rnn_dim, self.bwd_out_dim)
-
+        self.bwd_out_mod = nn.Linear(rnn_dim, out_dim)
+        self.dec_out_mod = nn.Linear(64, 64)
+        self.bwd_dec_out_mod = nn.Linear(64, 64) 
     def save(self, filename):
         state = {
             'emb_dim': self.emb_dim,
@@ -274,7 +293,6 @@ class ZForcing(nn.Module):
             'nlayers': self.nlayers,
             'mlp_dim': self.mlp_dim,
             'out_dim': self.out_dim,
-            'bwd_out_dim': self.bwd_out_dim,
             'out_type': self.out_type,
             'cond_ln': self.cond_ln,
             'z_force': self.z_force,
@@ -309,21 +327,17 @@ class ZForcing(nn.Module):
         return (Variable(weight.new(self.nlayers, bsz, self.rnn_dim).zero_()),
                 Variable(weight.new(self.nlayers, bsz, self.rnn_dim).zero_()))
 
-    def fwd_pass(self, x_fwd, hidden, bwd_states=None, z_step=None):
+    def fwd_pass(self, x_fwd, hidden, actions=None,eval_=False, bwd_states=None, z_step=None):
         x_fwd_reshape = x_fwd.view(-1, *x_fwd.shape[2:])
-        x_emb = self.fwd_emb_mod(x_fwd_reshape).view(-1, 256)
-        x_emb = self.linear1(x_emb)
-
+        x_emb = self.emb_mod(x_fwd_reshape)
         x_fwd = x_emb.view(*x_fwd.shape[:2], self.emb_dim)
-
         nsteps = x_fwd.size(0)
         states = [(hidden[0][0], hidden[1][0])]
-        klds, zs, log_pz, log_qz, aux_cs = [], [], [], [], []
+        klds, zs, log_pz, log_qz, aux_cs, dec_outs = [], [], [], [], [], []
         eps = Variable(next(self.parameters()).data.new(
             nsteps, x_fwd.size(1), self.z_dim).normal_())
         big = Variable(next(self.parameters()).data.new(x_fwd.size(1)).zero_()) + 0.5
         big = torch.bernoulli(big).unsqueeze(1)
-
         assert (z_step is None) or (nsteps == 1)
         for step in range(nsteps):
             states_step = states[step]
@@ -352,7 +366,7 @@ class ZForcing(nn.Module):
                 aux_params = torch.clamp(aux_params, -8., 8.)
                 aux_mu, aux_logvar = torch.chunk(aux_params, 2, 1)
                 # disconnect gradient here
-                b_step_ = b_step.detach()
+                b_step_ = b_step
                 if self.use_l2:
                     aux_step = torch.sum((b_step_ - F.tanh(aux_mu)) ** 2.0, 1)
                 else:
@@ -366,17 +380,28 @@ class ZForcing(nn.Module):
                 aux_step = torch.sum(pri_mu * 0., -1)
                 inf_mu, inf_logvar = pri_mu, pri_logvar
                 kld = aux_step
-
+            action_step = self.fwd_action_emb(actions[step])
+            input_step = torch.cat((action_step.float(), z_step), 1)
+            #input_step = torch.cat((input_step, h_step), 1)
+            #i_step = self.gen_mod(input_step)
             i_step = self.gen_mod(z_step)
             if self.cond_ln:
                 i_step = torch.clamp(i_step, -3, 3)
                 gain_hh, bias_hh = torch.chunk(i_step, 2, 1)
                 gain_hh = 1. + gain_hh
+                # h_new takes in h_step, x_step, z_t and a_t
+                #h_new, c_new = self.fwd_mod(x_step, (h_step, c_step),
+                #                            gain_hh=gain_hh, bias_hh=bias_hh)
                 h_new, c_new = self.fwd_mod(x_step, (h_step, c_step),
-                                            gain_hh=gain_hh, bias_hh=bias_hh)
+                                                gain_hh = gain_hh, bias_hh = bias_hh)
             else:
                 h_new, c_new = self.fwd_mod(torch.cat((i_step, x_step), 1),
                                             (h_step, c_step))
+            #maybe should concat h_new and also i_step together
+            dec_h = self.dec_linear(torch.cat((h_new, input_step),1))
+            dec_h = dec_h.reshape(-1, 1024, 1,1)
+            dec_out = self.dec_mod(dec_h)
+            dec_outs.append(dec_out)
             states.append((h_new, c_new))
             klds.append(kld)
             zs.append(z_step)
@@ -389,62 +414,84 @@ class ZForcing(nn.Module):
         log_pz = torch.stack(log_pz, 0)
         log_qz = torch.stack(log_qz, 0)
         zs = torch.stack(zs, 0)
-
         outputs = [s[0] for s in states[1:]]
         outputs = torch.stack(outputs, 0)
         outputs = self.fwd_out_mod(outputs)
-        return outputs, states[1:], klds, aux_cs, zs, log_pz, log_qz
+        dec_outs = torch.stack(dec_outs, 0)
+        dec_outs = self.dec_out_mod(dec_outs)
+        return outputs, states[1:], klds, aux_cs, zs, log_pz, log_qz, dec_outs
 
     def infer(self, x, hidden):
         '''Infer latent variables for a given batch of sentences ``x''.
         '''
         x_ = x[:-1]
         y_ = x[1:]
-        bwd_states, bwd_outputs = self.bwd_pass(x_, y_, hidden)
-        fwd_outputs, fwd_states, klds, aux_nll, zs, log_pz, log_qz = self.fwd_pass(
+        bwd_states, bwd_outputs, dec_bwd_outputs, _ = self.bwd_pass(x_, y_, hidden)
+        fwd_outputs, fwd_states, klds, aux_nll, zs, log_pz, log_qz, dec_outs = self.fwd_pass(
                 x_, hidden, bwd_states=bwd_states)
         return zs
 
     def bwd_pass(self, x, y, hidden):
         idx = np.arange(x.size(0))[::-1].tolist()
+        import ipdb; ipdb.set_trace()
         idx = torch.LongTensor(idx)
         idx = Variable(idx).cuda()
+        y = y.detach()
         # invert the targets and revert back
         x_bwd = x.index_select(0, idx)
-
-        y_bwd = y.index_select(0, idx)
+        y_bwd = y.index_select(0, idx).detach()
         # x_bwd = torch.cat([x_bwd, x[:1]], 0)
         x_bwd_reshape = x_bwd.view(-1, *x_bwd.shape[2:])
         x_emb = self.bwd_emb_mod(x_bwd_reshape)
         x_bwd = x_emb.view(*x_bwd.shape[:2], self.emb_dim)
         states, _ = self.bwd_mod(x_bwd, hidden)
-        dec_states = self.dec_linear(states)
-        dec_states = dec_states.reshape(-1, 64, 2, 2)
-        dec_outputs = self.bwd_dec_mod(dec_states)
-        # reshape dec_outputs and compute cross entropy loss (already includes softmax)
-        bwd_l2_loss = self.l2_loss(dec_outputs.view_as(y_bwd), y_bwd)
+        #dec_states = states[:,:,None,None]
+        dec_states = self.bwd_dec_linear(states) 
+        dec_states = dec_states.reshape(-1, 1024, 1,1)
+        bwd_param = self.bwd_dec_mod(dec_states)
+        
+        bwd_mu = self.bwd_mean_network(bwd_param)
+        bwd_logvar = self.bwd_logvar_network(bwd_param)
+        nsteps = x_bwd.size(0)
+        eps = Variable(next(self.parameters()).data.new(bwd_mu.size(0),3, 64, 64).normal_())
+        bwd_outputs = self.reparametrize(bwd_mu,bwd_logvar, eps=eps)
+
+        bwd_states_nll = -log_prob_gaussian(y_bwd, bwd_mu.view_as(y_bwd), bwd_logvar.view_as(y_bwd))
         outputs = self.bwd_out_mod(states)
+
         states = states.index_select(0, idx)
         outputs = outputs.index_select(0, idx)
-        return states, outputs, bwd_l2_loss
-
-    def generate_onestep(self, x_fwd, x_mask, hidden):
+        #outputs = self.bwd_dec_out_mod(outputs)
+        return states, outputs, bwd_states_nll
+    
+    def generate_onestep(self, x_fwd, x_mask, hidden, return_decode=False, action=None):
         nsteps, nbatch = x_fwd.size(0), x_fwd.size(1)
-        #bwd_states, bwd_outputs = self.bwd_pass(x_bwd, hidden)
-        fwd_outputs, fwd_states, klds, aux_nll, zs, log_pz, log_qz = self.fwd_pass(
-                    x_fwd, hidden)
-        output_prob = F.softmax(fwd_outputs.squeeze(0))
-        sampled_output = torch.multinomial(output_prob, 1)
+        fwd_outputs, fwd_states, klds, aux_nll, zs, log_pz, log_qz, dec_outs = self.fwd_pass(
+            x_fwd, hidden, actions=action, bwd_states=None, eval_=True)
+        out_mu, out_logvar = torch.chunk(fwd_outputs, 2, -1) 
         hidden = (fwd_states[0][0].unsqueeze(0), fwd_states[0][1].unsqueeze(0))
-        if self.return_loss:
-            return (sampled_output, hidden, aux_nll)
+        if return_decode:
+            return (out_mu, out_logvar, hidden, dec_outs)
         else:
-            return (sampled_output, hidden)
+            return (out_mu, out_logvar, hidden)
+ 
 
-        '''kld = (klds * x_mask).sum(0)
+    def forward(self, x_fwd, x_bwd, y, x_mask, hidden, fwd_dec=False, return_stats=False):
+        import ipdb; ipdb.set_trace()
+        nsteps, nbatch = x_fwd.size(0), x_fwd.size(1)
+        bwd_states, bwd_outputs, bwd_states_nll = self.bwd_pass(x_bwd, x_fwd, hidden)
+        actions = torch.cat((torch.zeros(y.shape[1:]).unsqueeze(0).cuda().float(),y[:-1]),0)
+        fwd_outputs, fwd_states, klds, aux_nll, zs, log_pz, log_qz, dec_outs = self.fwd_pass(
+            x_fwd, hidden, actions=actions, bwd_states=bwd_states)
+        import ipdb; ipdb.set_trace()
+        kld = (klds * x_mask).sum(0)
         log_pz = (log_pz * x_mask).sum(0)
         log_qz = (log_qz * x_mask).sum(0)
         aux_nll = (aux_nll * x_mask).sum(0)
+        aux_fwd_l2 = self.l2_loss(dec_outs, x_bwd)
+        # compute loss for backward decoder
+        #bwd_l2_loss = self.l2_loss(dec_bwd_outputs.view_as(x_bwd_target), x_bwd_target)
+        
         if self.out_type == 'gaussian':
             out_mu, out_logvar = torch.chunk(fwd_outputs, 2, -1)
             fwd_nll = -log_prob_gaussian(y, out_mu, out_logvar)
@@ -465,49 +512,8 @@ class ZForcing(nn.Module):
             bwd_nll = torch.gather(bwd_out, 1, y).squeeze(1)
             bwd_nll = -bwd_nll.view(nsteps, nbatch)
             bwd_nll = (bwd_nll * x_mask).sum(0)
-
+        
+        fwd_state = (fwd_states[-1][0].unsqueeze(0).detach(), fwd_states[-1][1].unsqueeze(0).detach())
         if return_stats:
-            return fwd_nll, bwd_nll, aux_nll, kld, log_pz, log_qz
-        return fwd_nll.mean(), bwd_nll.mean(), aux_nll.mean(), kld.mean() '''
-
-
-    def forward(self, x_fwd, x_bwd, y, dec_bwd, x_mask, hidden, y_bwd = None, return_stats=False, return_per_step=False):
-        if y_bwd is None:
-            y_bwd = y
-        nsteps, nbatch = x_fwd.size(0), x_fwd.size(1)
-        bwd_states, bwd_outputs, bwd_l2_loss = self.bwd_pass(x_bwd, dec_bwd,hidden)
-        fwd_outputs, fwd_states, klds, aux_nlls, zs, log_pz, log_qz = self.fwd_pass(
-            x_fwd, hidden, bwd_states=bwd_states)
-        kld = (klds * x_mask).sum(0)
-        log_pz = (log_pz * x_mask).sum(0)
-        log_qz = (log_qz * x_mask).sum(0)
-        aux_nll = (aux_nlls * x_mask).sum(0)
-
-
-        if self.out_type == 'gaussian':
-            out_mu, out_logvar = torch.chunk(fwd_outputs, 2, -1)
-            fwd_nll = -log_prob_gaussian(y, out_mu, out_logvar)
-            fwd_nll = (fwd_nll * x_mask).sum(0)
-        elif self.out_type == 'softmax':
-            fwd_out = fwd_outputs.view(nsteps * nbatch, self.out_dim)
-            fwd_out = F.log_softmax(fwd_out)
-            y = y.view(-1, 1)
-            fwd_nll = torch.gather(fwd_out, 1, y.long()).squeeze(1)
-            fwd_nll = fwd_nll.view(nsteps, nbatch)
-            fwd_nll = -(fwd_nll * x_mask).sum(0)
-        if self.bwd_out_type == 'softmax':
-            bwd_out = bwd_outputs.view(nsteps * nbatch, self.out_dim)
-            bwd_out = F.log_softmax(bwd_out)
-            y_bwd = y_bwd.view(-1, 1)
-            bwd_nll = torch.gather(bwd_out, 1, y_bwd.long()).squeeze(1)
-            bwd_nll = -bwd_nll.view(nsteps, nbatch)
-            bwd_nll = (bwd_nll * x_mask).sum(0)
-        elif self.bwd_out_type == 'gaussian':
-            out_mu, out_logvar = torch.chunk(bwd_outputs, 2, -1)
-            bwd_nll = -log_prob_gaussian(y_bwd, out_mu, out_logvar)
-            bwd_nll = (bwd_nll * x_mask).sum(0)
-        if return_per_step:
-            return fwd_nll, bwd_nll, aux_nlls, klds, log_pz, bwd_l2_loss
-        elif return_stats:
-            return fwd_nll, bwd_nll, aux_nll, kld, log_pz, log_qz, bwd_l2_loss
-        return fwd_nll.mean(), bwd_nll.mean(), aux_nll.mean(), kld.mean(), bwd_l2_loss
+            return fwd_nll, bwd_nll, aux_nll, kld, log_pz, log_qz, bwd_states_nll, aux_fwd_l2, fwd_state
+        return fwd_nll.mean(), bwd_nll.mean(), aux_nll.mean(), kld.mean(), bwd_states_nll, aux_fwd_l2, fwd_state
