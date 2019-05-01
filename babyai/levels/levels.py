@@ -1,3 +1,4 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
 import random
 from collections import OrderedDict
 from copy import deepcopy

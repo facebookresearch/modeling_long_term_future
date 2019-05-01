@@ -1,3 +1,4 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
 from collections import namedtuple
 
 from gym_minigrid.minigrid import COLOR_NAMES

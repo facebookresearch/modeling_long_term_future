@@ -1,3 +1,4 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
 import gym_minigrid
 from gym_minigrid.minigrid import *
 

@@ -1,3 +1,4 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
 __author__ = "Saizheng Zhang"
 __credits__ = "Saizheng Zhang, Lucas Willems, Thien Huu Nguyen"
 
