@@ -4,6 +4,7 @@ The code base contains multiple branches.
 
 - The main branch contains experiments for the BabyAI tasks.
 - The mujoco branch contains experiments for the Mujoco tasks.
+- The carracing branch contains experiments for CarRacing task.
 
 Based on code base for the BabyAI project at Mila. https://github.com/mila-iqia/babyai
 
