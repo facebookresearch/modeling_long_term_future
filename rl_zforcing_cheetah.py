@@ -1,4 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -151,7 +150,7 @@ class ZForcing(nn.Module):
     def __init__(self, emb_dim, rnn_dim,
                  z_dim, mlp_dim, out_dim, out_type="gaussian",
                  cond_ln=False, nlayers=1, z_force=False, dropout=0.,
-                 use_l2=False, drop_grad=False):
+                 use_l2=False, drop_grad=False, num_actions=6):
         super(ZForcing, self).__init__()
         assert not drop_grad, "drop_grad is not supported!"
         self.emb_dim = emb_dim
@@ -167,8 +166,9 @@ class ZForcing(nn.Module):
         self.use_l2 = use_l2
         self.drop_grad = drop_grad
         self.action_emb_size = 64
+        self.num_actions = num_actions
         self.fwd_action_emb = nn.Sequential(
-            nn.Linear(6, int(self.action_emb_size/2)),
+            nn.Linear(num_actions, int(self.action_emb_size/2)),
             nn.LeakyReLU(),
             nn.Linear(int(self.action_emb_size/2), self.action_emb_size))
         self.l2_loss = nn.MSELoss()
@@ -193,26 +193,26 @@ class ZForcing(nn.Module):
 #
 
         self.bwd_emb_mod = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=32, kernel_size=4, stride=2),                                                                                                                           
+            nn.Conv2d(in_channels=3, out_channels=32, kernel_size=4, stride=2),
             nn.BatchNorm2d(32),
-            nn.LeakyReLU(),                                                                                                                                                                                          
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),                                                                                                                          
+            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
             nn.BatchNorm2d(64),
-            nn.LeakyReLU(),                                                                                                                                                                                          
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=4, stride=2),                                                                                                                         
+            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=4, stride=2),
             nn.BatchNorm2d(128),
-            nn.LeakyReLU(),                                                                                                                                                                                          
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=4, stride=2),                                                                                                                        
-            nn.LeakyReLU(),                                                                                                                                                                                          
-            #nn.AvgPool2d(4),                                                                                                                                                                                        
-            View(-1, 1024),                                                                                                                                                                                          
-            nn.Linear(1024, emb_dim),                                                                                                                                                                                
-            #nn.Dropout(dropout))    
+            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=4, stride=2),
+            nn.LeakyReLU(),
+            #nn.AvgPool2d(4),
+            View(-1, 1024),
+            nn.Linear(1024, emb_dim),
+            #nn.Dropout(dropout))
             )
-        self.bwd_dec_linear = nn.Linear(rnn_dim, 1024) 
-        
-        self.dec_linear = nn.Linear(832, 1024) 
- 
+        self.bwd_dec_linear = nn.Linear(rnn_dim, 1024)
+
+        self.dec_linear = nn.Linear(832, 1024)
+
         self.dec_mod = nn.Sequential(
             nn.ConvTranspose2d(in_channels=1024,out_channels=128,kernel_size=5,stride=2),
             nn.BatchNorm2d(128),
@@ -224,7 +224,7 @@ class ZForcing(nn.Module):
             nn.LeakyReLU(),
             nn.ConvTranspose2d(in_channels=32,out_channels=3,kernel_size=6,stride=2),
             nn.LeakyReLU()
-            ) 
+            )
         self.bwd_dec_mod = nn.Sequential(
             nn.ConvTranspose2d(in_channels=1024,out_channels=128,kernel_size=5,stride=2),
             nn.BatchNorm2d(128),
@@ -238,26 +238,6 @@ class ZForcing(nn.Module):
             nn.LeakyReLU()
             #nn.Sigmoid()
             )
-
-        self.bwd_mean_network = nn.Sequential(
-            nn.Linear(in_features=64, out_features=32, bias=True),
-            nn.ReLU(),
-            nn.Linear(in_features=32, out_features=64, bias=True))
-
-        self.bwd_logvar_network = nn.Sequential(
-            nn.Linear(in_features=64, out_features=32, bias=True),
-            nn.ReLU(),
-            nn.Linear(in_features=32, out_features=64, bias=True))
-        
-        self.mean_network = nn.Sequential(
-            nn.Linear(in_features=64, out_features=32, bias=True),
-            nn.ReLU(),
-            nn.Linear(in_features=32, out_features=64, bias=True))
-
-        self.logvar_network = nn.Sequential(
-            nn.Linear(in_features=64, out_features=32, bias=True),
-            nn.ReLU(),
-            nn.Linear(in_features=32, out_features=64, bias=True))  
         self.bwd_mod = nn.LSTM(emb_dim, rnn_dim, nlayers)
         nn.init.orthogonal(self.bwd_mod.weight_hh_l0.data)
         self.fwd_mod = LSTMCell(
@@ -285,8 +265,7 @@ class ZForcing(nn.Module):
             nn.Linear(mlp_dim, 2 * rnn_dim))
         self.fwd_out_mod = nn.Linear(rnn_dim, out_dim)
         self.bwd_out_mod = nn.Linear(rnn_dim, out_dim)
-        self.dec_out_mod = nn.Linear(64, 64)
-        self.bwd_dec_out_mod = nn.Linear(64, 64) 
+
     def save(self, filename):
         state = {
             'emb_dim': self.emb_dim,
@@ -419,7 +398,6 @@ class ZForcing(nn.Module):
         outputs = torch.stack(outputs, 0)
         outputs = self.fwd_out_mod(outputs)
         dec_outs = torch.stack(dec_outs, 0)
-        dec_outs = self.dec_out_mod(dec_outs)
         return outputs, states[1:], klds, aux_cs, zs, log_pz, log_qz, dec_outs
 
     def infer(self, x, hidden):
@@ -432,9 +410,8 @@ class ZForcing(nn.Module):
                 x_, hidden, bwd_states=bwd_states)
         return zs
 
-    def bwd_pass(self, x, y, hidden):
+    def bwd_pass(self, x, y, x_mask, hidden):
         idx = np.arange(x.size(0))[::-1].tolist()
-        import ipdb; ipdb.set_trace()
         idx = torch.LongTensor(idx)
         idx = Variable(idx).cuda()
         y = y.detach()
@@ -446,53 +423,60 @@ class ZForcing(nn.Module):
         x_emb = self.bwd_emb_mod(x_bwd_reshape)
         x_bwd = x_emb.view(*x_bwd.shape[:2], self.emb_dim)
         states, _ = self.bwd_mod(x_bwd, hidden)
-        #dec_states = states[:,:,None,None]
-        dec_states = self.bwd_dec_linear(states) 
-        dec_states = dec_states.reshape(-1, 1024, 1,1)
-        bwd_param = self.bwd_dec_mod(dec_states)
-        
-        bwd_mu = self.bwd_mean_network(bwd_param)
-        bwd_logvar = self.bwd_logvar_network(bwd_param)
-        nsteps = x_bwd.size(0)
-        eps = Variable(next(self.parameters()).data.new(bwd_mu.size(0),3, 64, 64).normal_())
-        bwd_outputs = self.reparametrize(bwd_mu,bwd_logvar, eps=eps)
 
-        bwd_states_nll = -log_prob_gaussian(y_bwd, bwd_mu.view_as(y_bwd), bwd_logvar.view_as(y_bwd))
+        x_bwd_mask = x_mask.index_select(0, idx)
+        size = (1 for _ in range(len(y_bwd.size()[2:])))
+        x_bwd_mask = x_bwd_mask.view(*(x_bwd_mask.size()), *size)
+        x_bwd_mask = x_bwd_mask.expand_as(y_bwd)
+        #dec_states = states[:,:,None,None]
+        dec_states = self.bwd_dec_linear(states)
+        dec_states = dec_states.reshape(-1, 1024, 1,1)
+        dec_outputs = self.bwd_dec_mod(dec_states)
+        dec_outputs = dec_outputs.view_as(y_bwd)
+        dec_outputs = (dec_outputs * x_bwd_mask)
+        y_bwd = (y_bwd * x_bwd_mask)
+
+        bwd_l2_loss = self.l2_loss(dec_outputs, y_bwd)
         outputs = self.bwd_out_mod(states)
 
         states = states.index_select(0, idx)
         outputs = outputs.index_select(0, idx)
-        #outputs = self.bwd_dec_out_mod(outputs)
-        return states, outputs, bwd_states_nll
-    
+        return states, outputs, bwd_l2_loss
+
     def generate_onestep(self, x_fwd, x_mask, hidden, return_decode=False, action=None):
         nsteps, nbatch = x_fwd.size(0), x_fwd.size(1)
         fwd_outputs, fwd_states, klds, aux_nll, zs, log_pz, log_qz, dec_outs = self.fwd_pass(
             x_fwd, hidden, actions=action, bwd_states=None, eval_=True)
-        out_mu, out_logvar = torch.chunk(fwd_outputs, 2, -1) 
+        out_mu, out_logvar = torch.chunk(fwd_outputs, 2, -1)
         hidden = (fwd_states[0][0].unsqueeze(0), fwd_states[0][1].unsqueeze(0))
         if return_decode:
             return (out_mu, out_logvar, hidden, dec_outs)
         else:
             return (out_mu, out_logvar, hidden)
- 
+
 
     def forward(self, x_fwd, x_bwd, y, x_mask, hidden, fwd_dec=False, return_stats=False):
-        import ipdb; ipdb.set_trace()
         nsteps, nbatch = x_fwd.size(0), x_fwd.size(1)
-        bwd_states, bwd_outputs, bwd_states_nll = self.bwd_pass(x_bwd, x_fwd, hidden)
+        bwd_states, bwd_outputs, bwd_l2_loss = self.bwd_pass(x_bwd, x_fwd, x_mask, hidden)
         actions = torch.cat((torch.zeros(y.shape[1:]).unsqueeze(0).cuda().float(),y[:-1]),0)
         fwd_outputs, fwd_states, klds, aux_nll, zs, log_pz, log_qz, dec_outs = self.fwd_pass(
             x_fwd, hidden, actions=actions, bwd_states=bwd_states)
-        import ipdb; ipdb.set_trace()
         kld = (klds * x_mask).sum(0)
         log_pz = (log_pz * x_mask).sum(0)
         log_qz = (log_qz * x_mask).sum(0)
         aux_nll = (aux_nll * x_mask).sum(0)
+
+        size = (1 for _ in range(len(x_bwd.size()[2:])))
+        x_mask_expanded = x_mask.view(*(x_mask.size()), *size)
+        x_mask_expanded = x_mask_expanded.expand_as(x_bwd)
+
+        dec_outs = (dec_outs * x_mask_expanded)
+        x_bwd = (x_bwd * x_mask_expanded)
         aux_fwd_l2 = self.l2_loss(dec_outs, x_bwd)
+
         # compute loss for backward decoder
         #bwd_l2_loss = self.l2_loss(dec_bwd_outputs.view_as(x_bwd_target), x_bwd_target)
-        
+
         if self.out_type == 'gaussian':
             out_mu, out_logvar = torch.chunk(fwd_outputs, 2, -1)
             fwd_nll = -log_prob_gaussian(y, out_mu, out_logvar)
@@ -513,8 +497,8 @@ class ZForcing(nn.Module):
             bwd_nll = torch.gather(bwd_out, 1, y).squeeze(1)
             bwd_nll = -bwd_nll.view(nsteps, nbatch)
             bwd_nll = (bwd_nll * x_mask).sum(0)
-        
+
         fwd_state = (fwd_states[-1][0].unsqueeze(0).detach(), fwd_states[-1][1].unsqueeze(0).detach())
         if return_stats:
-            return fwd_nll, bwd_nll, aux_nll, kld, log_pz, log_qz, bwd_states_nll, aux_fwd_l2, fwd_state
-        return fwd_nll.mean(), bwd_nll.mean(), aux_nll.mean(), kld.mean(), bwd_states_nll, aux_fwd_l2, fwd_state
+            return fwd_nll, bwd_nll, aux_nll, kld, log_pz, log_qz, bwd_l2_loss, aux_fwd_l2, fwd_state
+        return fwd_nll.mean(), bwd_nll.mean(), aux_nll.mean(), kld.mean(), bwd_l2_loss, aux_fwd_l2, fwd_state

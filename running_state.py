@@ -1,4 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
 from collections import deque
 
 import numpy as np
@@ -9,8 +8,10 @@ import numpy as np
 class RunningStat(object):
     def __init__(self, shape):
         self._n = 0
-        self._M = np.zeros(shape)
-        self._S = np.zeros(shape)
+        if type(shape) != tuple:
+            shape = (shape)
+        self._M = np.zeros(*shape)
+        self._S = np.zeros(*shape)
 
     def push(self, x):
         x = np.asarray(x)
@@ -50,14 +51,14 @@ class ZFilter:
     using running estimates of mean,std
     """
 
-    def __init__(self, shape, demean=False, destd=False, clip=10.0):
+    def __init__(self, shape, demean=True, destd=True, clip=10.0):
         self.demean = demean
         self.destd = destd
         self.clip = clip
 
         self.rs = RunningStat(shape)
 
-    def __call__(self, x, update=False):
+    def __call__(self, x, update=True):
         if update: self.rs.push(x)
         if self.demean:
             x = x - self.rs.mean
